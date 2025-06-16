@@ -6,16 +6,40 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
   const [accessToken, setAccessToken] = useState(null);
+  const handleSpotifyLogin = () => {
+    window.location.href = "http://localhost:5000/api/spotify/login";
+  };
 
 
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+    console.log("URL Params:", urlParams.toString());
     const code = urlParams.get("code");
+    const source = urlParams.get("source");
+    console.log("Parsed Code / Source:", code, source);
 
-    if (code) {
-      setLoading(true);
+    if (!code) return;
 
+    setLoading(true);
+
+    if (source === 'spotify') {
+      fetch("http://localhost:5000/api/spotify/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log("Spotify Access Token:", data.access_token);
+          setAccessToken(data.access_token);
+          setPlaylists(data.items || []);
+        })
+        .catch(err => console.error("Spotify fetch failed", err));
+    }
+
+
+    else {
       fetch("http://localhost:5000/api/youtube/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -23,17 +47,24 @@ function App() {
       })
         .then((res) => res.json())
         .then((data) => {
-          console.log("Access Token (Frontend):", data.access_token); // check here
-          setAccessToken(data.access_token); // make sure this is defined
+          console.log("YouTube Access Token:", data.access_token);
+          setAccessToken(data.access_token);
           setPlaylists(data.items || []);
         })
-
         .catch((err) => {
-          console.error("Failed to fetch playlist:", err);
+          console.error("YouTube fetch failed:", err);
           setLoading(false);
         });
     }
   }, []);
+
+
+  useEffect(() => {
+    // This one logs the selected playlist ID
+    if (selectedPlaylistId) {
+      console.log("Selected Playlist ID:", selectedPlaylistId);
+    }
+  }, [selectedPlaylistId]);
 
   const handleLogin = () => {
     window.location.href = "http://localhost:5000/api/youtube/login";
@@ -46,6 +77,8 @@ function App() {
       {!playlists.length && !loading && (
         <button onClick={handleLogin}>Login with Google</button>
       )}
+
+      <button onClick={handleSpotifyLogin}>Login with Spotify</button>
 
       {loading && <p>Loading playlists...</p>}
 
@@ -70,7 +103,8 @@ function App() {
               cursor: 'pointer',
               background: '#f9f9f9'
             }}
-            onClick={() => alert(`Clicked: ${pl.snippet.title}`)}
+            onClick={() => setSelectedPlaylistId(pl.id)}
+
           >
             <img
               src={pl.snippet.thumbnails.default.url}
