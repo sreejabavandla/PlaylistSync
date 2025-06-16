@@ -3,6 +3,8 @@ const cors = require('cors');
 const axios = require('axios');
 const path = require('path');
 const dotenv = require('dotenv');
+const querystring = require('querystring');
+
 
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 
@@ -48,10 +50,8 @@ app.get('/api/youtube/callback', async (req, res) => {
       params: { part: 'snippet', mine: true, maxResults: 25 }
     });
 
-    res.json({
-      access_token,
-      items: playlistRes.data.items,
-    });
+    res.redirect(`http://localhost:5173?code=${code}&source=youtube`);
+
 
   } catch (error) {
     console.error(error.response?.data || error);
@@ -90,5 +90,92 @@ app.post('/api/youtube/token', async (req, res) => {
     return res.status(500).json({ error: "OAuth failed" });
   }
 });
+
+app.get('/api/spotify/login', (req, res) => {
+  const scope = 'playlist-read-private';
+  const params = querystring.stringify({
+    response_type: 'code',
+    client_id: process.env.SPOTIFY_CLIENT_ID,
+    scope: scope,
+    redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
+  });
+
+  res.redirect(`https://accounts.spotify.com/authorize?${params}`);
+});
+
+app.get('/api/spotify/callback', async (req, res) => {
+  const code = req.query.code;
+
+  try {
+    const response = await axios.post(
+      'https://accounts.spotify.com/api/token',
+      querystring.stringify({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
+        client_id: process.env.SPOTIFY_CLIENT_ID,
+        client_secret: process.env.SPOTIFY_CLIENT_SECRET,
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      }
+    );
+
+    const { access_token } = response.data;
+
+    const playlistsRes = await axios.get('https://api.spotify.com/v1/me/playlists', {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+
+    res.redirect(`http://localhost:5173?code=${code}&source=spotify`);
+
+
+  } catch (err) {
+    console.error('Spotify OAuth error:', err.response?.data || err);
+    res.status(500).json({ error: 'Spotify OAuth failed' });
+  }
+});
+
+app.post('/api/spotify/token', async (req, res) => {
+  const code = req.body.code;
+  console.log("Token exchange code (backend):", req.body.code);
+
+
+  try {
+    const response = await axios.post(
+      'https://accounts.spotify.com/api/token',
+      querystring.stringify({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
+        client_id: process.env.SPOTIFY_CLIENT_ID,
+        client_secret: process.env.SPOTIFY_CLIENT_SECRET,
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      }
+    );
+
+    const { access_token } = response.data;
+
+    const playlistsRes = await axios.get('https://api.spotify.com/v1/me/playlists', {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+
+    res.json({
+      access_token,
+      items: playlistsRes.data.items,
+    });
+
+  } catch (err) {
+    console.error('Spotify token exchange failed:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Spotify OAuth failed' });
+  }
+});
+
 
 app.listen(5000, () => console.log('Backend running on http://localhost:5000'));
