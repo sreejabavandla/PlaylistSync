@@ -6,79 +6,97 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
   const [accessToken, setAccessToken] = useState(null);
+  const [source, setSource] = useState(null);
+
   const handleSpotifyLogin = () => {
-    window.location.href = "http://localhost:5000/api/spotify/login";
+    window.location.href = "http://127.0.0.1:5000/api/spotify/login";
   };
 
+  const handleLogin = () => {
+    window.location.href = "http://127.0.0.1:5000/api/youtube/login";
+  };
+useEffect(() => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const code = urlParams.get("code");
+  let source = urlParams.get("source");
 
+  console.log("🔍 useEffect running");
+  console.log("👉 code =", code);
+  console.log("👉 source =", source);
 
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    console.log("URL Params:", urlParams.toString());
-    const code = urlParams.get("code");
-    const source = urlParams.get("source");
-    console.log("Parsed Code / Source:", code, source);
+  if (!code) {
+    console.log("🚫 No code found, skipping token fetch.");
+    return;
+  }
 
-    if (!code) return;
-
-    setLoading(true);
-
-    if (source === 'spotify') {
-      fetch("http://localhost:5000/api/spotify/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      })
-        .then(res => res.json())
-        .then(data => {
-          console.log("Spotify Access Token:", data.access_token);
-          setAccessToken(data.access_token);
-          setPlaylists(data.items || []);
-        })
-        .catch(err => console.error("Spotify fetch failed", err));
+  // Infer source if not passed
+  if (!source) {
+    const pathname = window.location.pathname;
+    if (pathname === "/oauth2callback") {
+      console.log("✅ Detected YouTube from /oauth2callback");
+      source = "youtube";
+    } else {
+      console.log("✅ Defaulting to Spotify (assumed)");
+      source = "spotify";
     }
+  }
 
+  setSource(source);
+  setLoading(true);
 
-    else {
-      fetch("http://localhost:5000/api/youtube/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          console.log("YouTube Access Token:", data.access_token);
-          setAccessToken(data.access_token);
-          setPlaylists(data.items || []);
-        })
-        .catch((err) => {
-          console.error("YouTube fetch failed:", err);
-          setLoading(false);
+  const fetchToken = async () => {
+    try {
+      console.log("🚀 Fetching token for", source);
+      let response;
+
+      if (source === "spotify") {
+        response = await fetch("http://127.0.0.1:5000/api/spotify/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, redirect_uri: "http://127.0.0.1:5173" }),
         });
+      } else {
+        response = await fetch("http://127.0.0.1:5000/api/youtube/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        });
+      }
+
+      const data = await response.json();
+      console.log("✅ Got data:", data);
+
+      setAccessToken(data.access_token);
+      setPlaylists(data.items || []);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } catch (err) {
+      console.error(`${source} fetch failed`, err);
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  };
+
+  fetchToken();
+}, []);
+
 
 
   useEffect(() => {
-    // This one logs the selected playlist ID
     if (selectedPlaylistId) {
       console.log("Selected Playlist ID:", selectedPlaylistId);
     }
   }, [selectedPlaylistId]);
 
-  const handleLogin = () => {
-    window.location.href = "http://localhost:5000/api/youtube/login";
-  };
-
   return (
     <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>🎵 PlaylistSync - YouTube</h1>
+      <h1>🎵 PlaylistSync - {source === 'spotify' ? "Spotify" : "YouTube"}</h1>
 
       {!playlists.length && !loading && (
-        <button onClick={handleLogin}>Login with Google</button>
+        <>
+          <button onClick={handleLogin}>Login with Google (YouTube)</button>
+          <button onClick={handleSpotifyLogin} style={{ marginLeft: "1rem" }}>Login with Spotify</button>
+        </>
       )}
-
-      <button onClick={handleSpotifyLogin}>Login with Spotify</button>
 
       {loading && <p>Loading playlists...</p>}
 
@@ -104,24 +122,34 @@ function App() {
               background: '#f9f9f9'
             }}
             onClick={() => setSelectedPlaylistId(pl.id)}
-
           >
-            <img
-              src={pl.snippet.thumbnails.default.url}
-              alt={pl.snippet.title}
-              style={{ width: '100%', borderRadius: '4px' }}
-            />
-            <p>{pl.snippet.title}</p>
+            {source === 'spotify' ? (
+              <>
+                <img
+                  src={pl.images?.[0]?.url || "https://via.placeholder.com/150"}
+                  alt={pl.name}
+                  style={{ width: '100%', borderRadius: '4px' }}
+                />
+                <p>{pl.name}</p>
+              </>
+            ) : (
+              <>
+                <img
+                  src={pl.snippet?.thumbnails?.default?.url || "https://via.placeholder.com/150"}
+                  alt={pl.snippet?.title}
+                  style={{ width: '100%', borderRadius: '4px' }}
+                />
+                <p>{pl.snippet?.title}</p>
+              </>
+            )}
           </div>
         ))}
-        {selectedPlaylistId && accessToken && (
-          <PlaylistVideos playlistId={selectedPlaylistId} accessToken={accessToken} />
-        )}
       </div>
 
-
+      {selectedPlaylistId && accessToken && source === 'youtube' && (
+        <PlaylistVideos playlistId={selectedPlaylistId} accessToken={accessToken} />
+      )}
     </div>
-
   );
 }
 

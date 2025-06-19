@@ -31,6 +31,9 @@ app.get('/api/youtube/login', (req, res) => {
 console.log("CLIENT ID:", process.env.GOOGLE_CLIENT_ID);
 console.log("SECRET:", process.env.GOOGLE_CLIENT_SECRET);
 console.log("REDIRECT:", process.env.GOOGLE_REDIRECT_URI);
+console.log(process.env.SPOTIFY_CLIENT_ID);
+console.log(process.env.SPOTIFY_CLIENT_SECRET);
+console.log(process.env.SPOTIFY_REDIRECT_URI);
 
 app.get('/api/youtube/callback', async (req, res) => {
   const code = req.query.code;
@@ -49,8 +52,10 @@ app.get('/api/youtube/callback', async (req, res) => {
       headers: { Authorization: `Bearer ${access_token}` },
       params: { part: 'snippet', mine: true, maxResults: 25 }
     });
+    const finalRedirectUrl = `http://127.0.0.1:5173?code=${code}&source=youtube`;
+    console.log("Redirecting to:", finalRedirectUrl);
+    res.redirect(finalRedirectUrl);
 
-    res.redirect(`http://localhost:5173?code=${code}&source=youtube`);
 
 
   } catch (error) {
@@ -61,17 +66,17 @@ app.get('/api/youtube/callback', async (req, res) => {
 
 app.post('/api/youtube/token', async (req, res) => {
   const code = req.body.code;
+
   try {
     const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI, // this must be http://localhost:5173/oauth2callback
       grant_type: 'authorization_code'
     });
 
     const { access_token } = tokenRes.data;
-    console.log("Access Token:", access_token);
 
     const playlistRes = await axios.get('https://www.googleapis.com/youtube/v3/playlists', {
       headers: { Authorization: `Bearer ${access_token}` },
@@ -85,11 +90,11 @@ app.post('/api/youtube/token', async (req, res) => {
 
   } catch (err) {
     console.error("OAuth error", err.response?.data || err);
-
-    // Make sure this is the ONLY response if there's an error
     return res.status(500).json({ error: "OAuth failed" });
   }
 });
+
+
 
 app.get('/api/spotify/login', (req, res) => {
   const scope = 'playlist-read-private';
@@ -103,13 +108,13 @@ app.get('/api/spotify/login', (req, res) => {
   res.redirect(`https://accounts.spotify.com/authorize?${params}`);
 });
 
+// Backend: Spotify callback route
 app.get('/api/spotify/callback', async (req, res) => {
-  const code = req.query.code;
+  const code = req.query.code || null;
 
   try {
-    const response = await axios.post(
-      'https://accounts.spotify.com/api/token',
-      querystring.stringify({
+    const tokenResponse = await axios.post('https://accounts.spotify.com/api/token',
+      new URLSearchParams({
         grant_type: 'authorization_code',
         code,
         redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
@@ -117,31 +122,25 @@ app.get('/api/spotify/callback', async (req, res) => {
         client_secret: process.env.SPOTIFY_CLIENT_SECRET,
       }),
       {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       }
     );
 
-    const { access_token } = response.data;
-
-    const playlistsRes = await axios.get('https://api.spotify.com/v1/me/playlists', {
-      headers: { Authorization: `Bearer ${access_token}` },
-    });
-
-    res.redirect(`http://localhost:5173?code=${code}&source=spotify`);
-
-
-  } catch (err) {
-    console.error('Spotify OAuth error:', err.response?.data || err);
-    res.status(500).json({ error: 'Spotify OAuth failed' });
+    return res.redirect(`http://127.0.0.1:5173?code=${code}&source=spotify`);
+  } catch (error) {
+    console.error("Spotify token exchange failed:", error.response?.data || error.message);
+    return res.status(500).send("Token exchange failed");
   }
 });
 
+
+
 app.post('/api/spotify/token', async (req, res) => {
   const code = req.body.code;
-  console.log("Token exchange code (backend):", req.body.code);
+  const redirect_uri = req.body.redirect_uri; // ← use what frontend sends
 
+  console.log("Token exchange code (backend):", code);
+  console.log("Redirect URI (from frontend):", redirect_uri);
 
   try {
     const response = await axios.post(
@@ -149,7 +148,7 @@ app.post('/api/spotify/token', async (req, res) => {
       querystring.stringify({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
+        redirect_uri, // 👈 use the one passed from frontend
         client_id: process.env.SPOTIFY_CLIENT_ID,
         client_secret: process.env.SPOTIFY_CLIENT_SECRET,
       }),
@@ -166,16 +165,20 @@ app.post('/api/spotify/token', async (req, res) => {
       headers: { Authorization: `Bearer ${access_token}` },
     });
 
-    res.json({
+    return res.json({
       access_token,
       items: playlistsRes.data.items,
     });
 
   } catch (err) {
     console.error('Spotify token exchange failed:', err.response?.data || err.message);
-    res.status(500).json({ error: 'Spotify OAuth failed' });
+    return res.status(500).json({ error: 'Spotify OAuth failed' });
   }
 });
 
 
-app.listen(5000, () => console.log('Backend running on http://localhost:5000'));
+
+app.listen(5000, '127.0.0.1', () => {
+  console.log('Backend running on http://127.0.0.1:5000');
+});
+
